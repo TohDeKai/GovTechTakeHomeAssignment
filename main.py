@@ -2,10 +2,11 @@
 from pickle import TRUE
 from fastapi import FastAPI, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from passlib.hash import bcrypt
 from tortoise import fields
+from tortoise.contrib.pydantic import pydantic_model_creator
 from tortoise.contrib.fastapi import register_tortoise
 from tortoise.models import Model
+from passlib.hash import bcrypt
 
 app = FastAPI()
 
@@ -19,7 +20,18 @@ class User(Model):
         return cls.get(username = username)
 
     def verify_password(gself, password):
-        return True
+        return bcrypt.verify(password, self.password_hash)
+    
+User_Pydantic = pydantic_model_creator(User, name = "User")
+UserIn_Pydantic = pydantic_model_creator(User, name = "UserIn", exclude_readonly = True)
+
+@app.post("/users", response_model= User_Pydantic)
+async def create_user(user: UserIn_Pydantic):
+    user_obj = User(username = user.username, password_hash = bcrypt.hash(user.password_hash))
+    await user_obj.save()
+    return await User_Pydantic.from_tortoise_orm(user_obj)
+
+ouath2_scheme = OAuth2PasswordBearer(tokenUrl = "token")
 
 register_tortoise(
     app,
@@ -29,7 +41,7 @@ register_tortoise(
     add_exception_handlers = True
 )
 
-ouath2_scheme = OAuth2PasswordBearer(tokenUrl = "token")
+
 
 # Endpoint to be called to generate token
 # Token will represent who is logged in
