@@ -1,7 +1,7 @@
 # Importing necessary packages
 from lib2to3.pgen2 import token
 import jwt
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from tortoise import fields
 from tortoise.contrib.pydantic import pydantic_model_creator
@@ -18,21 +18,11 @@ class User(Model):
     username = fields.CharField(50, unique = True)
     password_hash = fields.CharField(128)
 
-    @classmethod
-    async def get_user(cls, username):
-        return cls.get(username = username)
-
     def verify_password(self, password):
         return bcrypt.verify(password, self.password_hash)
     
 User_Pydantic = pydantic_model_creator(User, name = "User")
 UserIn_Pydantic = pydantic_model_creator(User, name = "UserIn", exclude_readonly = True)
-
-@app.post("/users", response_model= User_Pydantic)
-async def create_user(user: UserIn_Pydantic):
-    user_obj = User(username = user.username, password_hash = bcrypt.hash(user.password_hash))
-    await user_obj.save()
-    return await User_Pydantic.from_tortoise_orm(user_obj)
 
 ouath2_scheme = OAuth2PasswordBearer(tokenUrl = "token")
 
@@ -58,6 +48,26 @@ async def generate_token(form_data: OAuth2PasswordRequestForm = Depends()):
     token = jwt.encode(user_obj.dict(), JWT_SECRET)
 
     return {"access_token" : token, "token_type" : "bearer"}
+
+async def get_user_current(token: str = Depends(ouath2_scheme)):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms = ["HS256"]) #The default algorithm
+        user = await User.get(id = payload.get("id"))
+    except:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED, 
+            detail = "Invalid username or password. Please try again.")
+
+
+@app.post("/users", response_model= User_Pydantic)
+async def create_user(user: UserIn_Pydantic):
+    user_obj = User(username = user.username, password_hash = bcrypt.hash(user.password_hash))
+    await user_obj.save()
+    return await User_Pydantic.from_tortoise_orm(user_obj)
+
+@app.get("/users/me", response_model= User_Pydantic)
+async def get_user(user: User_Pydantic = Depends(get_user_current)):
+    return user
 
 register_tortoise(
     app,
