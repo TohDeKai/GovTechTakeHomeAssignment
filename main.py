@@ -12,10 +12,12 @@ app = FastAPI()
 
 JWT_SECRET = "Hello world"
 
+# Creating user model
 class User(Model):
     id = fields.IntField(pk=True)
     username = fields.CharField(50, unique=True)
     password_hash = fields.CharField(128)
+    full_name = fields.CharField(50)
 
     def verify_password(self, password):
         return bcrypt.verify(password, self.password_hash)
@@ -23,19 +25,24 @@ class User(Model):
 User_Pydantic = pydantic_model_creator(User, name='User')
 UserIn_Pydantic = pydantic_model_creator(User, name='UserIn', exclude_readonly=True)
 
+# Scheme used to verify using JWT token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='user/login')
 
+# Authenticating user
 async def authenticate_user(username: str, password: str):
     user = await User.get(username=username)
+    # If username is wrong
     if not user:
         return False 
+    # If password is wrong
     if not user.verify_password(password):
         return False
     return user 
 
+# Creating new user 
 @app.post('/user/register', response_model=User_Pydantic)
 async def create_user(user: UserIn_Pydantic):
-    user_obj = User(username=user.username, password_hash=bcrypt.hash(user.password_hash))
+    user_obj = User(username=user.username, password_hash=bcrypt.hash(user.password_hash), full_name = user.full_name)
     await user_obj.save()
     return await User_Pydantic.from_tortoise_orm(user_obj)  
 
@@ -57,8 +64,10 @@ async def generate_token(form_data: OAuth2PasswordRequestForm = Depends()):
 
     return {'access_token' : token, 'token_type' : 'bearer'}
 
+# Getting the current user 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
+        # Verifying using JWT token
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256']) #The default algorithm
         user = await User.get(id=payload.get('id'))
     except:
