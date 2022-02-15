@@ -1,5 +1,4 @@
 # Importing necessary packages
-from lib2to3.pgen2 import token
 import jwt
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
