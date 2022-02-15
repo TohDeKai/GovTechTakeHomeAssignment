@@ -1,5 +1,6 @@
 # Importing necessary packages
-from pickle import TRUE
+from lib2to3.pgen2 import token
+import jwt
 from fastapi import FastAPI, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from tortoise import fields
@@ -10,16 +11,18 @@ from passlib.hash import bcrypt
 
 app = FastAPI()
 
+JWT_SECRET = "Hello world"
+
 class User(Model):
     id = fields.IntField(pk=True)
-    username = fields.CharField(50, unique = TRUE)
+    username = fields.CharField(50, unique = True)
     password_hash = fields.CharField(128)
 
     @classmethod
     async def get_user(cls, username):
         return cls.get(username = username)
 
-    def verify_password(gself, password):
+    def verify_password(self, password):
         return bcrypt.verify(password, self.password_hash)
     
 User_Pydantic = pydantic_model_creator(User, name = "User")
@@ -33,6 +36,29 @@ async def create_user(user: UserIn_Pydantic):
 
 ouath2_scheme = OAuth2PasswordBearer(tokenUrl = "token")
 
+async def authenticate_user(username: str, password: str):
+    user = await User.get(username=username)
+    if not user:
+        return False
+    if not user.verify_password(password):
+        return False
+    return user
+
+# Endpoint to be called to generate token
+# Token will represent who is logged in
+@app.post("/token")
+async def generate_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await authenticate_user(form_data.username, form_data.password)
+
+    if not user:
+        return {"error" : "invalid credentials"}
+    
+    user_obj = await User_Pydantic.from_tortoise_orm(user)
+
+    token = jwt.encode(user_obj.dict(), JWT_SECRET)
+
+    return {"access_token" : token, "token_type" : "bearer"}
+
 register_tortoise(
     app,
     db_url = "sqlite://db.sqlite3",
@@ -41,15 +67,3 @@ register_tortoise(
     add_exception_handlers = True
 )
 
-
-
-# Endpoint to be called to generate token
-# Token will represent who is logged in
-@app.post("/token")
-async def token(form_data: OAuth2PasswordRequestForm = Depends()):
-    return {"access_token" : form_data.username + "token"}
-
-# Endpoint for app to do something with the token
-@app.get('/')
-async def index(token: str = Depends(ouath2_scheme)):
-    return {"the_token " : token }
